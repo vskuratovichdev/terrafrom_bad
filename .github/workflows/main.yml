@@ -182,7 +182,7 @@ jobs:
           
           # Run Claude Code analysis with file input
           echo "🤖 Running Claude Code analysis..."
-          if npx @anthropic-ai/claude-code --non-interactive prompt.txt > claude-analysis-report.md 2>error.log; then
+          if npx @anthropic-ai/claude-code --print "$(cat prompt.txt)" > claude-analysis-report.md 2>error.log; then
             echo "✅ Claude Code analysis completed successfully"
           else
             echo "⚠️ Claude Code analysis failed, creating fallback report"
