@@ -66,7 +66,8 @@ jobs:
       - name: Create analysis workspace
         run: |
           mkdir -p terraform-analysis-workspace
-          cp -r . terraform-analysis-workspace/
+          cp -r * terraform-analysis-workspace/ 2>/dev/null || true
+          cp -r .[^.]* terraform-analysis-workspace/ 2>/dev/null || true
           cd terraform-analysis-workspace
           
           # Create analysis instruction if it doesn't exist
