@@ -170,10 +170,10 @@ jobs:
         run: |
           cd terraform-analysis-workspace
           
-          # Create analysis prompt
-          cat > analysis-prompt.md << 'EOF'
-          Please analyze this Terraform Infrastructure as Code project using the comprehensive analysis instruction provided in terraform-analysis-instruction.md.
-          
+          # Run Claude Code analysis with proper prompt
+          echo "🤖 Running Claude Code analysis..."
+          echo "Please analyze this Terraform Infrastructure as Code project.
+
           Focus on:
           1. Critical security vulnerabilities
           2. Best practices compliance  
@@ -194,16 +194,16 @@ jobs:
           - Prioritized action plan
           - Security compliance assessment
           
-          Output the analysis as markdown suitable for GitHub PR comments.
-          EOF
-          
-          # Run Claude Code analysis
-          echo "🤖 Running Claude Code analysis..."
-          npx @anthropic-ai/claude-code --non-interactive < analysis-prompt.md > claude-analysis-report.md 2>&1 || {
+          Output the analysis as markdown suitable for GitHub PR comments." | npx @anthropic-ai/claude-code --non-interactive > claude-analysis-report.md 2>&1 || {
             echo "⚠️ Claude Code analysis failed, creating fallback report"
             echo "# Terraform Analysis Report" > claude-analysis-report.md
             echo "## Error" >> claude-analysis-report.md
-            echo "Claude Code analysis could not be completed. Please check the configuration." >> claude-analysis-report.md
+            echo "Claude Code analysis could not be completed. Please check the configuration and ensure ANTHROPIC_API_KEY is properly set." >> claude-analysis-report.md
+            echo "" >> claude-analysis-report.md
+            echo "## Debug Information" >> claude-analysis-report.md
+            echo "- Working directory: $(pwd)" >> claude-analysis-report.md
+            echo "- Files present: $(ls -la)" >> claude-analysis-report.md
+            echo "- Claude Code version: $(npx @anthropic-ai/claude-code --version 2>/dev/null || echo 'Not available')" >> claude-analysis-report.md
           }
 
       - name: Combine analysis results
