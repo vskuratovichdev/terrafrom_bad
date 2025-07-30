@@ -1,6 +1,6 @@
-# 🏗️ Azure Infrastructure as Code - NoteServe Project
+# 🏗️ Azure Infrastructure as Code - Test Project
 
-This repository contains Terraform configurations for provisioning Azure infrastructure for the NoteServe application. The infrastructure includes networking, compute, storage, and monitoring resources with proper security and VNet integration.
+This repository contains Terraform configurations for provisioning Azure infrastructure for the Test application. The infrastructure includes networking, compute, storage, and monitoring resources with proper security and VNet integration.
 
 ## 📋 Table of Contents
 
@@ -76,7 +76,7 @@ The infrastructure is designed with a modular approach and includes:
 ### 1. Clone Repository
 ```bash
 git clone <repository-url>
-cd noteserve_iac_provisioner
+cd Test_iac_provisioner
 ```
 
 ### 2. Configure Environment Variables
@@ -324,7 +324,7 @@ terraform apply -var-file="env/your-environment.tfvars"
 |------|------|-------------|---------|----------|
 | `sql_admin_username` | `string` | SQL Server admin username | - | ✅ |
 | `sql_admin_password` | `string` | SQL Server admin password | - | ✅ |
-| `sql_database_name` | `string` | Database name | `"noteserve_db"` | ❌ |
+| `sql_database_name` | `string` | Database name | `"Test_db"` | ❌ |
 | `sql_sku_name` | `string` | Database SKU | `"S2"` | ❌ |
 | `sql_max_size_gb` | `number` | Database max size | `2` | ❌ |
 
