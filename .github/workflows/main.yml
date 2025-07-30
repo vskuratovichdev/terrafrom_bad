@@ -170,41 +170,40 @@ jobs:
         run: |
           cd terraform-analysis-workspace
           
-          # Run Claude Code analysis with proper prompt
+          # Test Claude Code first
+          echo "🧪 Testing Claude Code CLI..."
+          npx @anthropic-ai/claude-code --help > test-output.txt 2>&1 || echo "Help command failed"
+          cat test-output.txt
+          
+          # Create a simple prompt file
+          cat > prompt.txt << 'EOF'
+          Analyze this Terraform codebase for security issues and best practices. Provide a brief markdown report.
+          EOF
+          
+          # Run Claude Code analysis with file input
           echo "🤖 Running Claude Code analysis..."
-          echo "Please analyze this Terraform Infrastructure as Code project.
-
-          Focus on:
-          1. Critical security vulnerabilities
-          2. Best practices compliance  
-          3. Operational excellence
-          4. Performance and reliability
-          5. Azure-specific configurations
-          
-          For each finding, provide:
-          - Severity level (Critical/High/Medium/Low)
-          - Specific file and line references
-          - Clear description of the issue
-          - Impact assessment
-          - Specific remediation steps with code examples
-          
-          Generate a comprehensive report with:
-          - Executive summary with scores
-          - Detailed findings by category
-          - Prioritized action plan
-          - Security compliance assessment
-          
-          Output the analysis as markdown suitable for GitHub PR comments." | npx @anthropic-ai/claude-code --non-interactive > claude-analysis-report.md 2>&1 || {
+          if npx @anthropic-ai/claude-code --non-interactive prompt.txt > claude-analysis-report.md 2>error.log; then
+            echo "✅ Claude Code analysis completed successfully"
+          else
             echo "⚠️ Claude Code analysis failed, creating fallback report"
+            echo "Error output:" && cat error.log
+            
             echo "# Terraform Analysis Report" > claude-analysis-report.md
             echo "## Error" >> claude-analysis-report.md
-            echo "Claude Code analysis could not be completed. Please check the configuration and ensure ANTHROPIC_API_KEY is properly set." >> claude-analysis-report.md
+            echo "Claude Code analysis could not be completed." >> claude-analysis-report.md
             echo "" >> claude-analysis-report.md
             echo "## Debug Information" >> claude-analysis-report.md
             echo "- Working directory: $(pwd)" >> claude-analysis-report.md
-            echo "- Files present: $(ls -la)" >> claude-analysis-report.md
-            echo "- Claude Code version: $(npx @anthropic-ai/claude-code --version 2>/dev/null || echo 'Not available')" >> claude-analysis-report.md
-          }
+            echo "- Files present: $(ls -la | head -10)" >> claude-analysis-report.md
+            echo "- Claude Code test output:" >> claude-analysis-report.md
+            echo '```' >> claude-analysis-report.md
+            cat test-output.txt >> claude-analysis-report.md
+            echo '```' >> claude-analysis-report.md
+            echo "- Error log:" >> claude-analysis-report.md
+            echo '```' >> claude-analysis-report.md
+            cat error.log >> claude-analysis-report.md
+            echo '```' >> claude-analysis-report.md
+          fi
 
       - name: Combine analysis results
         run: |
@@ -349,6 +348,51 @@ jobs:
           fi
           
           echo "✅ Terraform analysis workflow completed"
+
+      - name: Generate GitHub Actions Summary
+        run: |
+          cd terraform-analysis-workspace
+          
+          # Extract assessment metrics from the report
+          OVERALL_SCORE=$(grep -o "Overall Assessment Score: [0-9]*/[0-9]*" final-analysis-report.md | head -1 | grep -o "[0-9]*/[0-9]*" || echo "Not Available")
+          CRITICAL_COUNT=$(grep -o "Critical Findings\*\*: [0-9]*" final-analysis-report.md | head -1 | grep -o "[0-9]*" || echo "0")
+          HIGH_COUNT=$(grep -o "High Priority Issues\*\*: [0-9]*" final-analysis-report.md | head -1 | grep -o "[0-9]*" || echo "0")
+          MEDIUM_COUNT=$(grep -o "Medium Priority Issues\*\*: [0-9]*" final-analysis-report.md | head -1 | grep -o "[0-9]*" || echo "0")
+          LOW_COUNT=$(grep -o "Low Priority Issues\*\*: [0-9]*" final-analysis-report.md | head -1 | grep -o "[0-9]*" || echo "0")
+          
+          # Create GitHub Actions summary
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🏗️ Terraform Analysis Results
+          
+          ## 📊 Overall Assessment
+          **Score: ${OVERALL_SCORE}**
+          
+          ## 🔍 Findings Summary
+          | Priority | Count |
+          |----------|-------|
+          | 🚨 Critical | ${CRITICAL_COUNT} |
+          | ⚠️ High | ${HIGH_COUNT} |
+          | ⚡ Medium | ${MEDIUM_COUNT} |
+          | ℹ️ Low | ${LOW_COUNT} |
+          
+          ## 🔧 Tools Used
+          - **Claude Code**: AI-powered comprehensive analysis
+          - **Checkov**: Security and compliance scanning  
+          - **TFSec**: Security-focused static analysis
+          - **TFLint**: Terraform best practices validation
+          - **Terraform**: Built-in validation and formatting
+          
+          ## 📋 Next Steps
+          1. Review detailed findings in the workflow artifacts
+          2. Address critical and high priority issues first
+          3. Update Terraform configurations based on recommendations
+          4. Re-run analysis after implementing fixes
+          
+          ---
+          *Analysis completed on $(date)*
+          EOF
+          
+          echo "✅ GitHub Actions summary generated"
 
   create-issue-on-critical:
     runs-on: ubuntu-latest
