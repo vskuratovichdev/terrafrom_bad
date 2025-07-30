@@ -53,7 +53,7 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code
           echo "Claude Code version:"
-          claude-code --version
+          npx @anthropic-ai/claude-code --version
 
       - name: Verify Claude Code Authentication
         run: |
@@ -198,7 +198,7 @@ jobs:
           
           # Run Claude Code analysis
           echo "🤖 Running Claude Code analysis..."
-          claude-code --non-interactive < analysis-prompt.md > claude-analysis-report.md 2>&1 || {
+          npx @anthropic-ai/claude-code --non-interactive < analysis-prompt.md > claude-analysis-report.md 2>&1 || {
             echo "⚠️ Claude Code analysis failed, creating fallback report"
             echo "# Terraform Analysis Report" > claude-analysis-report.md
             echo "## Error" >> claude-analysis-report.md
