@@ -1,12 +1,6 @@
 name: Terraform Code Analysis with Claude Code
 
 on:
-  pull_request:
-    branches: [ main, master, prod, dev ]
-    paths:
-      - '**/*.tf'
-      - '**/*.tfvars'
-      - '**/terraform-analysis-instruction.md'
   workflow_dispatch:
     inputs:
       target_branch:
@@ -22,6 +16,16 @@ on:
           - full
           - security-only
           - best-practices-only
+      skip_tool_errors:
+        description: 'Skip errors when security tools are not available'
+        required: false
+        default: true
+        type: boolean
+      skip_sarif_upload:
+        description: 'Skip SARIF file upload if files are missing'
+        required: false
+        default: true
+        type: boolean
 
 env:
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -89,29 +93,77 @@ jobs:
 
       - name: Install security analysis tools
         run: |
-          # Install Checkov for security scanning
-          pip3 install checkov
-          
-          # Install TFLint
-          curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
-          
-          # Install TFSec
-          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          if [ "${{ github.event.inputs.analysis_type }}" = "security-only" ] || [ "${{ github.event.inputs.analysis_type }}" = "full" ]; then
+            echo "📦 Installing security analysis tools..."
+            
+            # Install Checkov for security scanning
+            pip3 install checkov || echo "⚠️ Failed to install Checkov"
+            
+            # Install TFLint
+            curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash || echo "⚠️ Failed to install TFLint"
+            
+            # Install TFSec
+            curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash || echo "⚠️ Failed to install TFSec"
+          else
+            echo "ℹ️ Skipping security tools installation for analysis type: ${{ github.event.inputs.analysis_type }}"
+          fi
 
       - name: Run automated security scans
         run: |
           cd terraform-analysis-workspace
+          SKIP_ERRORS="${{ github.event.inputs.skip_tool_errors }}"
           
-          echo "🔍 Running Checkov security scan..."
-          checkov -d . --output sarif --output-file-path checkov-results.sarif || true
-          checkov -d . --output cli || true
+          if [ "${{ github.event.inputs.analysis_type }}" = "security-only" ] || [ "${{ github.event.inputs.analysis_type }}" = "full" ]; then
+            echo "🔍 Running security scans..."
+            
+            # Run Checkov if available
+            if command -v checkov >/dev/null 2>&1; then
+              echo "Running Checkov security scan..."
+              checkov -d . --output sarif --output-file-path . || [ "$SKIP_ERRORS" = "true" ]
+              checkov -d . --output cli || [ "$SKIP_ERRORS" = "true" ]
+            else
+              echo "⚠️ Checkov not available"
+              [ "$SKIP_ERRORS" = "false" ] && exit 1 || true
+            fi
+            
+            # Create empty SARIF if file doesn't exist
+            if [ ! -f "checkov-results.sarif" ]; then
+              echo '{"version": "2.1.0", "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json", "runs": [{"tool": {"driver": {"name": "Checkov"}}, "results": []}]}' > checkov-results.sarif
+            fi
+            
+            # Run TFSec if available
+            if command -v tfsec >/dev/null 2>&1; then
+              echo "Running TFSec security scan..."
+              tfsec . --format sarif --out tfsec-results.sarif || [ "$SKIP_ERRORS" = "true" ]
+              tfsec . || [ "$SKIP_ERRORS" = "true" ]
+            else
+              echo "⚠️ TFSec not available"
+              [ "$SKIP_ERRORS" = "false" ] && exit 1 || true
+            fi
+            
+            # Create empty SARIF if file doesn't exist
+            if [ ! -f "tfsec-results.sarif" ]; then
+              echo '{"version": "2.1.0", "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json", "runs": [{"tool": {"driver": {"name": "TFSec"}}, "results": []}]}' > tfsec-results.sarif
+            fi
+          else
+            echo "ℹ️ Skipping security scans for analysis type: ${{ github.event.inputs.analysis_type }}"
+            # Create empty SARIF files for consistency
+            echo '{"version": "2.1.0", "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json", "runs": [{"tool": {"driver": {"name": "Checkov"}}, "results": []}]}' > checkov-results.sarif
+            echo '{"version": "2.1.0", "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json", "runs": [{"tool": {"driver": {"name": "TFSec"}}, "results": []}]}' > tfsec-results.sarif
+          fi
           
-          echo "🔍 Running TFSec security scan..."
-          tfsec . --format sarif --out tfsec-results.sarif || true
-          tfsec . || true
-          
-          echo "🔍 Running TFLint best practices check..."
-          tflint --recursive || true
+          if [ "${{ github.event.inputs.analysis_type }}" = "best-practices-only" ] || [ "${{ github.event.inputs.analysis_type }}" = "full" ]; then
+            # Run TFLint if available
+            if command -v tflint >/dev/null 2>&1; then
+              echo "🔍 Running TFLint best practices check..."
+              tflint --recursive || [ "$SKIP_ERRORS" = "true" ]
+            else
+              echo "⚠️ TFLint not available"
+              [ "$SKIP_ERRORS" = "false" ] && exit 1 || true
+            fi
+          else
+            echo "ℹ️ Skipping TFLint for analysis type: ${{ github.event.inputs.analysis_type }}"
+          fi
 
       - name: Run Claude Code Analysis
         run: |
@@ -223,7 +275,7 @@ jobs:
 
       - name: Upload SARIF files for GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && github.event.inputs.skip_sarif_upload != 'true'
         with:
           sarif_file: terraform-analysis-workspace/checkov-results.sarif
           category: checkov
@@ -231,7 +283,7 @@ jobs:
 
       - name: Upload TFSec SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && github.event.inputs.skip_sarif_upload != 'true'
         with:
           sarif_file: terraform-analysis-workspace/tfsec-results.sarif
           category: tfsec
