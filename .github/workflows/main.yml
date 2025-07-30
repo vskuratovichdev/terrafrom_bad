@@ -62,6 +62,18 @@ jobs:
             exit 1
           fi
           echo "✅ Claude Code authentication configured"
+          
+          # Test Claude Code with a simple prompt
+          echo "🧪 Testing Claude Code authentication..."
+          echo "Hello" | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions > auth-test.txt 2>auth-error.txt || true
+          echo "Auth test output size: $(wc -c < auth-test.txt 2>/dev/null || echo '0') bytes"
+          if [ -s auth-test.txt ]; then
+            echo "✅ Claude Code authentication working"
+            head -5 auth-test.txt
+          else
+            echo "❌ Claude Code authentication failed"
+            cat auth-error.txt
+          fi
 
       - name: Create analysis workspace
         run: |
@@ -186,19 +198,29 @@ jobs:
           cat prompt.txt
           echo "---"
           
-          # Try with bypass permissions for GitHub Actions sandbox
-          if npx @anthropic-ai/claude-code --print --dangerously-skip-permissions "$(cat prompt.txt)" > claude-analysis-report.md 2>error.log; then
+          # Try with bypass permissions for GitHub Actions sandbox using piped input
+          cat prompt.txt | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions > claude-analysis-report.md 2>error.log
+          EXIT_CODE=$?
+          
+          echo "Command exit code: $EXIT_CODE"
+          echo "Output file size: $(wc -c < claude-analysis-report.md 2>/dev/null || echo '0') bytes"
+          echo "Error log size: $(wc -c < error.log 2>/dev/null || echo '0') bytes"
+          
+          if [ $EXIT_CODE -eq 0 ] && [ -s claude-analysis-report.md ]; then
             echo "✅ Claude Code analysis completed successfully"
             echo "Analysis output preview:"
             head -10 claude-analysis-report.md
           else
-            echo "⚠️ Claude Code analysis failed, creating fallback report"
-            echo "Exit code: $?"
-            echo "Error output:"
-            cat error.log
-            echo "---"
-            echo "Stderr content:"
-            cat error.log 2>/dev/null || echo "No error log found"
+            echo "⚠️ Claude Code analysis failed or produced no output"
+            echo "Exit code: $EXIT_CODE"
+            if [ -s error.log ]; then
+              echo "Error output:"
+              cat error.log
+            fi
+            if [ -f claude-analysis-report.md ]; then
+              echo "Output file contents:"
+              cat claude-analysis-report.md
+            fi
             
             echo "# Terraform Analysis Report" > claude-analysis-report.md
             echo "## Error" >> claude-analysis-report.md
