@@ -182,11 +182,23 @@ jobs:
           
           # Run Claude Code analysis with file input
           echo "🤖 Running Claude Code analysis..."
-          if npx @anthropic-ai/claude-code --print "$(cat prompt.txt)" > claude-analysis-report.md 2>error.log; then
+          echo "Prompt content:"
+          cat prompt.txt
+          echo "---"
+          
+          # Try with bypass permissions for GitHub Actions sandbox
+          if npx @anthropic-ai/claude-code --print --dangerously-skip-permissions "$(cat prompt.txt)" > claude-analysis-report.md 2>error.log; then
             echo "✅ Claude Code analysis completed successfully"
+            echo "Analysis output preview:"
+            head -10 claude-analysis-report.md
           else
             echo "⚠️ Claude Code analysis failed, creating fallback report"
-            echo "Error output:" && cat error.log
+            echo "Exit code: $?"
+            echo "Error output:"
+            cat error.log
+            echo "---"
+            echo "Stderr content:"
+            cat error.log 2>/dev/null || echo "No error log found"
             
             echo "# Terraform Analysis Report" > claude-analysis-report.md
             echo "## Error" >> claude-analysis-report.md
