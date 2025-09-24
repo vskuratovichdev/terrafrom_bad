@@ -65,7 +65,7 @@ jobs:
           
           # Test Claude Code with a simple prompt
           echo "🧪 Testing Claude Code authentication..."
-          echo "Hello" | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions > auth-test.txt 2>auth-error.txt || true
+          echo "Hello" | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions --model sonnet > auth-test.txt 2>auth-error.txt || true
           echo "Auth test output size: $(wc -c < auth-test.txt 2>/dev/null || echo '0') bytes"
           if [ -s auth-test.txt ]; then
             echo "✅ Claude Code authentication working"
@@ -78,8 +78,10 @@ jobs:
       - name: Create analysis workspace
         run: |
           mkdir -p terraform-analysis-workspace
-          cp -r * terraform-analysis-workspace/ 2>/dev/null || true
-          cp -r .[^.]* terraform-analysis-workspace/ 2>/dev/null || true
+          # Copy all files and directories, excluding the terraform-analysis-workspace itself
+          find . -maxdepth 1 -name "terraform-analysis-workspace" -prune -o -type f -exec cp {} terraform-analysis-workspace/ \; 2>/dev/null || true
+          find . -maxdepth 1 -name "terraform-analysis-workspace" -prune -o -name ".*" -type f -exec cp {} terraform-analysis-workspace/ \; 2>/dev/null || true
+          find . -maxdepth 1 -name "terraform-analysis-workspace" -prune -o -type d -exec cp -r {} terraform-analysis-workspace/ \; 2>/dev/null || true
           cd terraform-analysis-workspace
           
           # Create analysis instruction if it doesn't exist
@@ -197,9 +199,15 @@ jobs:
           echo "Prompt content:"
           cat prompt.txt
           echo "---"
-          
+
+          # Verify environment
+          echo "Environment check:"
+          echo "ANTHROPIC_API_KEY is set: $([ -n "$ANTHROPIC_API_KEY" ] && echo "Yes" || echo "No")"
+          echo "Working directory: $(pwd)"
+          echo "Files in directory: $(ls -la | wc -l) files"
+
           # Try with bypass permissions for GitHub Actions sandbox using piped input
-          cat prompt.txt | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions > claude-analysis-report.md 2>error.log
+          cat prompt.txt | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions --model sonnet > claude-analysis-report.md 2>error.log
           EXIT_CODE=$?
           
           echo "Command exit code: $EXIT_CODE"
