@@ -44,12 +44,20 @@ jobs:
 
       - name: Run Terraform Best Practices Analysis
         run: |
+          # Determine analysis type
+          ANALYSIS_TYPE="${{ github.event.inputs.analysis_type || 'full' }}"
+          echo "🔍 Running analysis type: $ANALYSIS_TYPE"
+          echo "📂 Triggered by: ${{ github.event_name }}"
+
+          # Create output directory
+          mkdir -p analysis-output
+
+          # Run analysis
           docker run --rm \
             -v "$PWD:/workspace:ro" \
             -v "$PWD/analysis-output:/output" \
             -e ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
             -e INFRACOST_API_KEY="${{ secrets.INFRACOST_API_KEY }}" \
-            -e ANALYSIS_TYPE="full" \
             ghcr.io/vskuratovichdev/terraform-best-practices-analyzer:latest
 
       - name: Upload Analysis Results
