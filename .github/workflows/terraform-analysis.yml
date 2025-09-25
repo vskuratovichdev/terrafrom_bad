@@ -1,0 +1,91 @@
+name: Terraform Best Practices Analysis
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - '**/*.tf'
+      - '**/*.tfvars'
+      - '**/*.hcl'
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - '**/*.tf'
+      - '**/*.tfvars'
+      - '**/*.hcl'
+
+jobs:
+  terraform-analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Terraform Best Practices Analysis
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            -v "$PWD/analysis-output:/output" \
+            -e ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
+            -e INFRACOST_API_KEY="${{ secrets.INFRACOST_API_KEY }}" \
+            -e ANALYSIS_TYPE="full" \
+            ghcr.io/vskuratovichdev/terraform-best-practices-analyzer:latest
+
+      - name: Upload Analysis Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terraform-analysis-report
+          path: analysis-output/
+          retention-days: 30
+
+      - name: Comment PR with Analysis Results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'analysis-output/analysis-report.md';
+
+            if (fs.existsSync(path)) {
+              const report = fs.readFileSync(path, 'utf8');
+
+              // Truncate report if too long for GitHub comment
+              const maxLength = 65000;
+              const truncatedReport = report.length > maxLength
+                ? report.substring(0, maxLength) + '\n\n... (Report truncated. See full report in artifacts)'
+                : report;
+
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## 🏗️ Terraform Best Practices Analysis\n\n${truncatedReport}`
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '## 🏗️ Terraform Best Practices Analysis\n\n❌ Analysis failed or no report generated. Check the workflow logs for details.'
+              });
+            }
+
+      - name: Fail on Critical Issues
+        if: always()
+        run: |
+          # Check if critical issues were found
+          if [ -f "analysis-output/critical-issues.json" ]; then
+            CRITICAL_COUNT=$(jq '.critical_issues | length' analysis-output/critical-issues.json 2>/dev/null || echo "0")
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "❌ Found $CRITICAL_COUNT critical issues in Terraform code"
+              echo "Please review the analysis report and fix critical issues before merging"
+              exit 1
+            fi
+          fi
+          echo "✅ No critical issues found"
