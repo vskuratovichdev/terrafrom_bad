@@ -123,5 +123,5 @@ variable "acr_registry_password" {
   type        = string
   description = "Azure Container Registry password"
   sensitive   = true
-  default     = ""
+  default     = "tAnR1J4XPtfj-jH+>+bwZ@Q:}@_76QA7H.nuj%=xQYXBsQ=xBU0kLC4PoPH"
 }
