@@ -58,6 +58,7 @@ jobs:
             -v "$PWD/analysis-output:/output" \
             -e ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
             -e INFRACOST_API_KEY="${{ secrets.INFRACOST_API_KEY }}" \
+            -e ANALYSIS_TYPE="full" \
             ghcr.io/vskuratovichdev/terraform-best-practices-analyzer:latest
 
       - name: Upload Analysis Results
