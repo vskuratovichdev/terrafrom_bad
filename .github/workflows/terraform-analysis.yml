@@ -56,7 +56,7 @@ jobs:
           fi
 
           # Test API connectivity with a minimal request
-          API_TEST_RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
+          API_TEST_RESPONSE=$(curl -s \
             -X POST https://api.anthropic.com/v1/messages \
             -H "Content-Type: application/json" \
             -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
@@ -65,23 +65,27 @@ jobs:
               "model": "claude-3-haiku-20240307",
               "max_tokens": 10,
               "messages": [{"role": "user", "content": "test"}]
-            }' || echo "000")
+            }' 2>&1)
 
-          if [ "$API_TEST_RESULT" = "200" ]; then
+          API_TEST_RESULT=$(echo "$API_TEST_RESPONSE" | grep -o '"error":{"type":"[^"]*"' | cut -d'"' -f6 || echo "success")
+
+          if [ "$API_TEST_RESULT" = "success" ]; then
             echo "✅ Anthropic API connectivity verified"
-          elif [ "$API_TEST_RESULT" = "401" ]; then
+          elif [ "$API_TEST_RESULT" = "authentication_error" ]; then
             echo "❌ Anthropic API authentication failed - invalid API key"
             echo "::error::API key is invalid or expired. Please update ANTHROPIC_API_KEY secret"
             exit 1
-          elif [ "$API_TEST_RESULT" = "429" ]; then
+          elif [ "$API_TEST_RESULT" = "rate_limit_error" ]; then
             echo "⚠️ Anthropic API rate limited - continuing with analysis"
             echo "::warning::Rate limited but will attempt analysis"
-          elif [ "$API_TEST_RESULT" = "402" ]; then
+          elif [ "$API_TEST_RESULT" = "billing_error" ] || echo "$API_TEST_RESPONSE" | grep -q "credit"; then
             echo "❌ Anthropic API billing issue - insufficient credits"
             echo "::error::Account has insufficient credits. Please check your Anthropic billing"
+            echo "Response: $API_TEST_RESPONSE"
             exit 1
           else
-            echo "⚠️ Anthropic API returned status: $API_TEST_RESULT"
+            echo "⚠️ Anthropic API test response: $API_TEST_RESULT"
+            echo "Full response: $API_TEST_RESPONSE"
             echo "::warning::API connectivity issue but continuing with analysis"
           fi
 
@@ -89,10 +93,12 @@ jobs:
           if [ -n "${{ secrets.INFRACOST_API_KEY }}" ]; then
             echo "✅ INFRACOST_API_KEY secret is configured"
 
-            # Test Infracost API
+            # Test Infracost API with auth endpoint
             INFRACOST_TEST=$(curl -s -o /dev/null -w "%{http_code}" \
               -H "X-API-Key: ${{ secrets.INFRACOST_API_KEY }}" \
-              https://pricing.api.infracost.io/healthz || echo "000")
+              https://pricing.api.infracost.io/graphql \
+              -d '{"query": "{ products { prices { USD } } }"}' \
+              -H "Content-Type: application/json" || echo "000")
 
             if [ "$INFRACOST_TEST" = "200" ]; then
               echo "✅ Infracost API connectivity verified"
