@@ -1,0 +1,30 @@
+# Ignore analysis outputs
+analysis-output/
+terraform-analysis-workspace/
+*.log
+*.sarif
+*.json
+
+# Ignore Git
+.git
+.gitignore
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore Terraform runtime
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate*
+*.tfplan
+
+# Ignore documentation
+README*.md
+docs/

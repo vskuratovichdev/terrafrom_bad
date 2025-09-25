@@ -1,0 +1,233 @@
+name: Terraform Analysis (Using Published Image)
+
+on:
+  workflow_dispatch:
+    inputs:
+      analysis_type:
+        description: 'Type of analysis to perform'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - security-only
+          - best-practices-only
+      image_tag:
+        description: 'Docker image tag to use'
+        required: false
+        default: 'latest'
+      skip_errors:
+        description: 'Skip errors when tools fail'
+        required: false
+        default: true
+        type: boolean
+  pull_request:
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '**.hcl'
+  push:
+    branches: [main, master]
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '**.hcl'
+
+env:
+  # Use the published image instead of building locally
+  DOCKER_IMAGE: ghcr.io/${{ github.repository_owner }}/terraform-security-analyzer:${{ github.event.inputs.image_tag || 'latest' }}
+  ANALYSIS_TYPE: ${{ github.event.inputs.analysis_type || 'full' }}
+  SKIP_ERRORS: ${{ github.event.inputs.skip_errors || 'true' }}
+
+jobs:
+  terraform-analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+      security-events: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Terraform Analyzer image
+        run: |
+          echo "🐳 Pulling Terraform Security Analyzer Docker image..."
+          docker pull $DOCKER_IMAGE
+          echo "✅ Image pulled successfully"
+          docker images $DOCKER_IMAGE
+
+      - name: Create output directory
+        run: |
+          mkdir -p analysis-output
+          chmod 777 analysis-output
+
+      - name: Run Terraform Analysis
+        run: |
+          echo "🏗️ Running Terraform security analysis..."
+          echo "Docker Image: $DOCKER_IMAGE"
+          echo "Analysis Type: $ANALYSIS_TYPE"
+          echo "Skip Errors: $SKIP_ERRORS"
+          echo "Repository: ${{ github.repository }}"
+
+          # Check if we have any Terraform files
+          TF_FILES=$(find . -name "*.tf" -o -name "*.tfvars" | wc -l)
+          echo "Terraform files found: $TF_FILES"
+
+          if [ "$TF_FILES" -eq 0 ]; then
+            echo "⚠️ No Terraform files found in repository"
+            echo "# No Terraform Files Found" > analysis-output/analysis-report.md
+            echo "This repository does not contain any Terraform files (*.tf, *.tfvars) to analyze." >> analysis-output/analysis-report.md
+            exit 0
+          fi
+
+          # Run the analysis container
+          docker run \
+            --rm \
+            -v "$PWD:/workspace:ro" \
+            -v "$PWD/analysis-output:/output" \
+            -e ANALYSIS_TYPE="$ANALYSIS_TYPE" \
+            -e SKIP_ERRORS="$SKIP_ERRORS" \
+            $DOCKER_IMAGE || ANALYSIS_EXIT_CODE=$?
+
+          echo "Analysis completed with exit code: ${ANALYSIS_EXIT_CODE:-0}"
+
+          # Show analysis results
+          if [ -f "analysis-output/analysis-report.md" ]; then
+            echo "✅ Analysis report generated"
+            echo "Report size: $(wc -c < analysis-output/analysis-report.md) bytes"
+            echo ""
+            echo "=== REPORT PREVIEW ==="
+            head -30 analysis-output/analysis-report.md
+            echo "=== END PREVIEW ==="
+          else
+            echo "❌ Analysis report not found"
+            exit 1
+          fi
+
+      - name: Upload analysis results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: terraform-analysis-results-${{ github.run_number }}
+          path: |
+            analysis-output/
+          retention-days: 30
+
+      - name: Upload SARIF files to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('analysis-output/*.sarif') != ''
+        with:
+          sarif_file: analysis-output/
+        continue-on-error: true
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            try {
+              if (fs.existsSync('analysis-output/analysis-report.md')) {
+                const report = fs.readFileSync('analysis-output/analysis-report.md', 'utf8');
+
+                // Add header with image info
+                const header = `## 🏗️ Terraform Analysis Results
+
+                **Analysis performed using**: \`${{ env.DOCKER_IMAGE }}\`
+                **Analysis type**: ${{ env.ANALYSIS_TYPE }}
+                **Repository**: ${{ github.repository }}
+                **Commit**: ${{ github.sha }}
+
+                ---
+
+                `;
+
+                // Truncate if too long for GitHub comment
+                const maxLength = 58000; // Leave room for header
+                const reportContent = report.length > maxLength
+                  ? report.substring(0, maxLength) + '\n\n... (Report truncated. See artifacts for full report)'
+                  : report;
+
+                const finalReport = header + reportContent;
+
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: finalReport
+                });
+
+                console.log('✅ Analysis report posted to PR');
+              } else {
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: `## ❌ Terraform Analysis Failed
+
+                  The analysis could not be completed. Please check the workflow logs for details.
+
+                  **Image used**: \`${{ env.DOCKER_IMAGE }}\`
+                  **Workflow**: [View Details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+                });
+
+                console.log('❌ Analysis report not found - posted error comment');
+              }
+            } catch (error) {
+              console.error('Failed to post PR comment:', error);
+            }
+
+      - name: Generate workflow summary
+        if: always()
+        run: |
+          echo "## 🏗️ Terraform Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Docker Image**: \`$DOCKER_IMAGE\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Analysis Type**: $ANALYSIS_TYPE" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "analysis-output/analysis-report.md" ]; then
+            # Extract key metrics from the report
+            TOTAL_ISSUES=$(grep "Total.*|" analysis-output/analysis-report.md | grep -o "[0-9]*" | tail -1 || echo "0")
+            CRITICAL_ISSUES=$(grep "Critical.*|" analysis-output/analysis-report.md | grep -o "[0-9]*" | tail -1 || echo "0")
+            HIGH_ISSUES=$(grep "High.*|" analysis-output/analysis-report.md | grep -o "[0-9]*" | tail -1 || echo "0")
+
+            echo "### 📊 Summary" >> $GITHUB_STEP_SUMMARY
+            echo "- **Total Issues**: $TOTAL_ISSUES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Critical**: $CRITICAL_ISSUES" >> $GITHUB_STEP_SUMMARY
+            echo "- **High Priority**: $HIGH_ISSUES" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ -f "analysis-output/checkov-results.sarif" ] || [ -f "analysis-output/tfsec-results.sarif" ]; then
+              echo "📋 **Security scan results uploaded to [Security tab](https://github.com/${{ github.repository }}/security)**" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            echo "📄 **Full report available in [workflow artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$CRITICAL_ISSUES" -gt 0 ]; then
+              echo "🚨 **Action Required**: $CRITICAL_ISSUES critical issues found that need immediate attention" >> $GITHUB_STEP_SUMMARY
+            elif [ "$HIGH_ISSUES" -gt 0 ]; then
+              echo "⚠️ **Attention**: $HIGH_ISSUES high priority issues found" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **Good news**: No critical or high priority issues found" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ **Analysis failed** - no report generated" >> $GITHUB_STEP_SUMMARY
+            echo "Check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details." >> $GITHUB_STEP_SUMMARY
+          fi
