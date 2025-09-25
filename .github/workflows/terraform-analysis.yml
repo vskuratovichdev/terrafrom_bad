@@ -42,6 +42,69 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate API Connectivity
+        run: |
+          echo "🔐 Validating Anthropic API connectivity..."
+
+          # Check if API key is set
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "❌ ANTHROPIC_API_KEY secret is not set"
+            echo "::error::Please add ANTHROPIC_API_KEY to repository secrets"
+            exit 1
+          else
+            echo "✅ ANTHROPIC_API_KEY secret is configured"
+          fi
+
+          # Test API connectivity with a minimal request
+          API_TEST_RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${{ secrets.ANTHROPIC_API_KEY }}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d '{
+              "model": "claude-3-haiku-20240307",
+              "max_tokens": 10,
+              "messages": [{"role": "user", "content": "test"}]
+            }' || echo "000")
+
+          if [ "$API_TEST_RESULT" = "200" ]; then
+            echo "✅ Anthropic API connectivity verified"
+          elif [ "$API_TEST_RESULT" = "401" ]; then
+            echo "❌ Anthropic API authentication failed - invalid API key"
+            echo "::error::API key is invalid or expired. Please update ANTHROPIC_API_KEY secret"
+            exit 1
+          elif [ "$API_TEST_RESULT" = "429" ]; then
+            echo "⚠️ Anthropic API rate limited - continuing with analysis"
+            echo "::warning::Rate limited but will attempt analysis"
+          elif [ "$API_TEST_RESULT" = "402" ]; then
+            echo "❌ Anthropic API billing issue - insufficient credits"
+            echo "::error::Account has insufficient credits. Please check your Anthropic billing"
+            exit 1
+          else
+            echo "⚠️ Anthropic API returned status: $API_TEST_RESULT"
+            echo "::warning::API connectivity issue but continuing with analysis"
+          fi
+
+          # Check Infracost API if provided
+          if [ -n "${{ secrets.INFRACOST_API_KEY }}" ]; then
+            echo "✅ INFRACOST_API_KEY secret is configured"
+
+            # Test Infracost API
+            INFRACOST_TEST=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "X-API-Key: ${{ secrets.INFRACOST_API_KEY }}" \
+              https://pricing.api.infracost.io/healthz || echo "000")
+
+            if [ "$INFRACOST_TEST" = "200" ]; then
+              echo "✅ Infracost API connectivity verified"
+            else
+              echo "⚠️ Infracost API connectivity issue (status: $INFRACOST_TEST)"
+              echo "::warning::Infracost may not work properly"
+            fi
+          else
+            echo "⚠️ INFRACOST_API_KEY not set - cost analysis will be skipped"
+            echo "::notice::Add INFRACOST_API_KEY secret to enable cost analysis"
+          fi
+
       - name: Run Terraform Best Practices Analysis
         run: |
           # Determine analysis type
