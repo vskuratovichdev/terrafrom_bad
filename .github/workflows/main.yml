@@ -65,7 +65,7 @@ jobs:
           
           # Test Claude Code with a simple prompt
           echo "🧪 Testing Claude Code authentication..."
-          echo "Hello" | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions --model sonnet > auth-test.txt 2>auth-error.txt || true
+          echo "Hello" | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions --model haiku > auth-test.txt 2>auth-error.txt || true
           echo "Auth test output size: $(wc -c < auth-test.txt 2>/dev/null || echo '0') bytes"
           if [ -s auth-test.txt ]; then
             echo "✅ Claude Code authentication working"
@@ -207,7 +207,7 @@ jobs:
           echo "Files in directory: $(ls -la | wc -l) files"
 
           # Try with bypass permissions for GitHub Actions sandbox using piped input
-          cat prompt.txt | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions --model sonnet > claude-analysis-report.md 2>error.log
+          cat prompt.txt | npx @anthropic-ai/claude-code --print --dangerously-skip-permissions --model haiku > claude-analysis-report.md 2>error.log
           EXIT_CODE=$?
           
           echo "Command exit code: $EXIT_CODE"
