@@ -76,12 +76,52 @@ jobs:
               });
             }
 
+      - name: Generate Job Summary
+        if: always()
+        run: |
+          # Extract key metrics for GitHub Actions summary
+          echo "# 🏗️ Terraform Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "analysis-output/analysis-report.md" ]; then
+            # Extract summary section
+            echo "## 📊 Analysis Summary" >> $GITHUB_STEP_SUMMARY
+
+            # Parse the report for key metrics (basic parsing)
+            TOTAL_ISSUES=$(grep -o "Total.*|.*[0-9]\+" analysis-output/analysis-report.md | tail -1 | grep -o '[0-9]\+' | tail -1 || echo "0")
+            CRITICAL_ISSUES=$(grep -o "Critical.*|.*[0-9]\+" analysis-output/analysis-report.md | head -1 | grep -o '[0-9]\+' | tail -1 || echo "0")
+            HIGH_ISSUES=$(grep -o "High.*|.*[0-9]\+" analysis-output/analysis-report.md | head -1 | grep -o '[0-9]\+' | tail -1 || echo "0")
+
+            echo "- **Total Issues**: ${TOTAL_ISSUES}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Critical Issues**: ${CRITICAL_ISSUES}" >> $GITHUB_STEP_SUMMARY
+            echo "- **High Priority**: ${HIGH_ISSUES}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            # Extract cost information if available
+            if grep -q "Estimated Monthly Cost" analysis-output/analysis-report.md; then
+              COST=$(grep "Estimated Monthly Cost" analysis-output/analysis-report.md | head -1 | grep -o '\$[0-9.]\+' || echo "Unknown")
+              echo "## 💰 Cost Analysis" >> $GITHUB_STEP_SUMMARY
+              echo "- **Estimated Monthly Cost**: ${COST}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            # Add links to artifacts
+            echo "## 📋 Full Reports" >> $GITHUB_STEP_SUMMARY
+            echo "- 📄 [Download Analysis Report](../artifacts)" >> $GITHUB_STEP_SUMMARY
+            echo "- 🤖 AI-powered recommendations included" >> $GITHUB_STEP_SUMMARY
+            echo "- 💰 Cost optimization suggestions provided" >> $GITHUB_STEP_SUMMARY
+
+          else
+            echo "❌ **Analysis Failed** - No report generated" >> $GITHUB_STEP_SUMMARY
+            echo "Check the workflow logs for details" >> $GITHUB_STEP_SUMMARY
+          fi
+
       - name: Fail on Critical Issues
         if: always()
         run: |
-          # Check if critical issues were found
-          if [ -f "analysis-output/critical-issues.json" ]; then
-            CRITICAL_COUNT=$(jq '.critical_issues | length' analysis-output/critical-issues.json 2>/dev/null || echo "0")
+          # Check for critical issues in the analysis output
+          if [ -f "analysis-output/analysis-report.md" ]; then
+            CRITICAL_COUNT=$(grep -o "Critical.*|.*[0-9]\+" analysis-output/analysis-report.md | head -1 | grep -o '[0-9]\+' | tail -1 || echo "0")
             if [ "$CRITICAL_COUNT" -gt 0 ]; then
               echo "❌ Found $CRITICAL_COUNT critical issues in Terraform code"
               echo "Please review the analysis report and fix critical issues before merging"
