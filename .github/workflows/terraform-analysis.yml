@@ -13,6 +13,22 @@ on:
       - '**/*.tf'
       - '**/*.tfvars'
       - '**/*.hcl'
+  workflow_dispatch:
+    inputs:
+      analysis_type:
+        description: 'Type of analysis to perform'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - practices-only
+          - cost-only
+      force_run:
+        description: 'Force run analysis even without Terraform changes'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   terraform-analysis:
